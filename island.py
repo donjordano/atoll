@@ -13,7 +13,9 @@ from tabs import lbl
 
 POLL_SECONDS = 120
 HEAT_WEEKS = 26
-HEAT_COLORS = ["#1c1c1e", "#0b3d75", "#0a5fc2", "#1f7ff0", "#5aaeff"]
+HEAT_EMPTY = "#1c1c1e"
+HEAT_COLORS = {"claude": ["#4d2618", "#84402a", "#c0603d", "#e88a63"],  # Claude Code orange
+               "codex": ["#0b3d75", "#0a5fc2", "#1f7ff0", "#5aaeff"]}
 ALERT_FILE = os.path.expanduser("~/.cache/claude-island/alert")  # written by Claude Code hooks
 LIMITS_CACHE = os.path.expanduser("~/.local/share/claude-island/limits.json")
 FETCH_EVERY, BACKOFF = 90, 300
@@ -73,6 +75,21 @@ def until(iso, now=None):
 
 def level(pct):
     return "ok" if pct < 60 else "warn" if pct < 85 else "bad"
+
+
+def month_labels(start, n_days):
+    """[(column, "Jan"), ...] for each week column where a month begins, GitHub-style."""
+    if not start:
+        return []
+    out = []
+    for i in range(0, n_days, 7):
+        week = [start + timedelta(i + d) for d in range(7)]
+        firsts = [d for d in week if d.day == 1]
+        if i == 0 or firsts:
+            out.append((i // 7, (firsts or week)[0].strftime("%b")))
+    if len(out) > 1 and out[1][0] - out[0][0] < 3:  # partial first month would overlap the next label
+        out.pop(0)
+    return out
 
 
 def heat_levels(values):
@@ -197,19 +214,25 @@ class Column(Gtk.Box):
 
 
 class Heatmap(Gtk.DrawingArea):
-    CELL, GAP = 13, 4
+    CELL, GAP, TOP = 13, 4, 16  # TOP: room for the month labels
 
     def __init__(self):
         super().__init__()
-        self.levels = []
-        self.set_size_request(HEAT_WEEKS * (self.CELL + self.GAP), 7 * (self.CELL + self.GAP))
+        self.levels, self.owners, self.start = [], [], None
+        self.set_size_request(HEAT_WEEKS * (self.CELL + self.GAP), self.TOP + 7 * (self.CELL + self.GAP))
         self.connect("draw", self.on_draw)
 
     def on_draw(self, _w, cr):
         step = self.CELL + self.GAP
-        for i, lv in enumerate(self.levels):  # i = 0 is the Monday HEAT_WEEKS-1 weeks ago
+        cr.set_source_rgba(0.6, 0.6, 0.62, 1)
+        cr.set_font_size(10)
+        for col, name in month_labels(self.start, len(self.levels)):
+            cr.move_to(col * step, 10)
+            cr.show_text(name)
+        cr.translate(0, self.TOP)
+        for i, (lv, who) in enumerate(zip(self.levels, self.owners)):  # i = 0: Monday HEAT_WEEKS-1 weeks ago
             c = Gdk.RGBA()
-            c.parse(HEAT_COLORS[lv])
+            c.parse(HEAT_COLORS[who][lv - 1] if lv else HEAT_EMPTY)
             cr.set_source_rgba(c.red, c.green, c.blue, 1)
             x, y = (i // 7) * step, (i % 7) * step
             r = 3
@@ -260,12 +283,11 @@ class Island(Gtk.Window):
         legend = Gtk.Box(spacing=4)
         self.active = lbl(cls="dim", hexpand=True)
         legend.pack_start(self.active, True, True, 0)
-        legend.pack_start(lbl("Less", "dim"), False, False, 4)
-        for color in HEAT_COLORS[1:]:
+        for name, who in (("Claude", "claude"), ("Codex", "codex")):
             sw = lbl()
-            sw.set_markup(f"<span foreground='{color}'>■</span>")
+            sw.set_markup(" ".join(f"<span foreground='{c}'>■</span>" for c in HEAT_COLORS[who]))
+            legend.pack_start(lbl(name, "dim"), False, False, 4)
             legend.pack_start(sw, False, False, 0)
-        legend.pack_start(lbl("More", "dim"), False, False, 4)
         panel.pack_start(legend, False, False, 0)
         panel.pack_start(lbl("Fresh tokens exclude context re-read from the cache. The estimated API "
                              "equivalent uses list prices; it is not what you pay.", "dim",
@@ -436,10 +458,12 @@ class Island(Gtk.Window):
 
         start = today - timedelta(days=today.weekday() + 7 * (HEAT_WEEKS - 1))
         days = [(start + timedelta(i)).isoformat() for i in range((today - start).days + 1)]
-        vals = [sum((self.history or {}).get(k, [0, 0])) for k in days]
-        self.heat.levels = heat_levels(vals)
+        pairs = [(self.history or {}).get(k, [0, 0]) for k in days]
+        vals = [sum(p) for p in pairs]
+        self.heat.levels, self.heat.start = heat_levels(vals), start
+        self.heat.owners = ["claude" if c >= x else "codex" for c, x in pairs]  # whichever did more that day
         self.heat.queue_draw()
-        self.active.set_text(f"{sum(v > 0 for v in vals)} active days, shaded by fresh tokens")
+        self.active.set_text(f"{sum(v > 0 for v in vals)} active days, colored by the busier tool")
         return True
 
 
@@ -450,6 +474,9 @@ def self_test():
     assert until("2025-12-31T00:00:00+00:00", now) == "0 h 00 min"
     assert until(None) == "—"
     assert [level(p) for p in (0, 59, 60, 85, 100)] == ["ok", "ok", "warn", "bad", "bad"]
+    assert month_labels(date(2026, 4, 27), 21) == [(0, "May")]  # the week holding May 1 is May's
+    assert month_labels(date(2026, 4, 20), 21) == [(1, "May")]  # one-column Apr label dropped
+    assert month_labels(date(2026, 4, 6), 35)[0] == (0, "Apr")
     assert heat_levels([0, 0]) == [0, 0]
     assert heat_levels([0, 1, 2, 3, 4]) == [0, 1, 2, 3, 4]
     assert describe_alert({"hook_event_name": "Stop", "cwd": "/a/proj"})[0] == "proj · finished"
