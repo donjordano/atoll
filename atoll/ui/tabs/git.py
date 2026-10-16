@@ -28,7 +28,7 @@ class GitTab(Tab):
 
         def work():
             st = git_status(cwd)
-            return st, recent_commits(cwd) if st else ""
+            return st, recent_commits(cwd) if st else []
         bg(work, lambda r: self.show(cwd, r))
 
     def show(self, cwd, r):
@@ -47,6 +47,6 @@ class GitTab(Tab):
                 self.files.pack_start(lbl(f, "mono", ellipsize=3), False, False, 0)
             if len(g["files"]) > 8:
                 self.files.pack_start(lbl(f"…and {len(g['files']) - 8} more", "dim"), False, False, 0)
-            for line in log.splitlines():
+            for line in log or ["No commits yet"]:
                 self.commits.pack_start(lbl(line, "mono", ellipsize=3), False, False, 0)
         self.show_all()

@@ -30,5 +30,7 @@ def git_status(path):
 
 
 def recent_commits(path, n=6):
-    return subprocess.run(["git", "-C", path, "log", f"-{n}", "--format=%h  %s  · %cr"],
-                          capture_output=True, text=True, timeout=5).stdout
+    """Up to n one-line commits, newest first; [] if there are none yet (git log fails on an empty repo)."""
+    r = subprocess.run(["git", "-C", path, "log", f"-{n}", "--format=%h  %s  · %cr"],
+                       capture_output=True, text=True, timeout=5)
+    return r.stdout.splitlines() if r.returncode == 0 else []

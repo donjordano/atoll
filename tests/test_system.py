@@ -1,11 +1,12 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
 
 from atoll import paths
 from atoll.system import autostart
-from atoll.system.git import parse_git
+from atoll.system.git import git_status, parse_git, recent_commits
 from atoll.system.github import parse_prs
 from atoll.system.sysinfo import cpu_percent
 
@@ -17,6 +18,16 @@ class Git(unittest.TestCase):
                       "2 R. N... 100644 100644 100644 h1 h2 R100 new.py\told.py\n? notes.txt\n")
         self.assertEqual(g, {"branch": "main", "ahead": 2, "behind": 1, "changed": 3,
                              "files": ["src/my file.py", "new.py", "notes.txt"]})
+
+    def test_empty_repo_has_no_commits(self):
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "-q", d], check=True)
+            self.assertEqual(recent_commits(d), [])
+            self.assertEqual(git_status(d)["changed"], 0)
+            subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                            "--allow-empty", "-m", "first"], check=True)
+            (line,) = recent_commits(d)
+            self.assertIn("first", line)
 
     def test_no_upstream(self):
         self.assertIsNone(parse_git("# branch.head (detached)\n")["ahead"])
