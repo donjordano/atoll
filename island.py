@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Claude Code / Codex usage 'dynamic island' for GNOME/X11. Click the pill to expand, drag it to move."""
-import json, os, sys, threading, time, urllib.error
+"""Atoll: a floating usage island for Claude Code, Codex and Pi on GNOME/X11. Click to expand, drag to move."""
+import fcntl, json, os, sys, threading, time, urllib.error
 from datetime import date, datetime, timedelta, timezone
 
 import gi
@@ -17,10 +17,10 @@ HEAT_EMPTY = "#1c1c1e"
 HEAT_COLORS = {"claude": ["#4d2618", "#84402a", "#c0603d", "#e88a63"],  # Claude Code orange
                "codex": ["#0b3d75", "#0a5fc2", "#1f7ff0", "#5aaeff"],
                "pi": ["#0f3d26", "#16653d", "#24a35f", "#4fd68a"]}
-ALERT_FILE = os.path.expanduser("~/.cache/claude-island/alert")  # written by Claude Code hooks
-LIMITS_CACHE = os.path.expanduser("~/.local/share/claude-island/limits.json")
-POSITION_FILE = os.path.expanduser("~/.local/share/claude-island/position.json")  # [center x, top y] once dragged
-PILL_FILE = os.path.expanduser("~/.local/share/claude-island/pill-agent")
+ALERT_FILE = us.CACHE + "/alert"  # written by Claude Code hooks
+LIMITS_CACHE = us.DATA + "/limits.json"
+POSITION_FILE = us.DATA + "/position.json"  # [center x, top y] once dragged
+PILL_FILE = us.DATA + "/pill-agent"
 DRAG_THRESHOLD = 4  # px of movement before a press counts as a drag, not a click
 FETCH_EVERY, BACKOFF = 90, 300
 
@@ -270,6 +270,7 @@ def heat_block(box, who):
 class Island(Gtk.Window):
     def __init__(self):
         super().__init__(type=Gtk.WindowType.POPUP)  # no decorations, no taskbar entry, above others
+        self.set_title("Atoll")
         self.set_visual(self.get_screen().get_rgba_visual())
         self.set_app_paintable(True)
         self.claude_limits = self.error = None
@@ -621,6 +622,14 @@ if __name__ == "__main__":
     if "--test" in sys.argv:
         self_test()
         sys.exit()
+    os.makedirs(os.path.expanduser("~/.cache"), exist_ok=True)
+    lock = open(os.path.expanduser("~/.cache/atoll.lock"), "w")  # outside CACHE so migrating it can't race the lock
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit("atoll is already running")
+    tabs.migrate_old_name()
+    GLib.set_prgname("atoll")  # window class, so GNOME groups it under the Atoll launcher
     prov = Gtk.CssProvider()
     prov.load_from_data((CSS.decode() % LEVEL_COLORS).encode())
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov,

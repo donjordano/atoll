@@ -7,6 +7,8 @@ CLAUDE_GLOB = HOME + "/.claude/projects/**/*.jsonl"
 CODEX_GLOB = HOME + "/.codex/sessions/**/*.jsonl"
 PI_GLOB = HOME + "/.pi/agent/sessions/**/*.jsonl"
 PI_AUTH = HOME + "/.pi/agent/auth.json"
+DATA = HOME + "/.local/share/atoll"  # history, limits, tasks, settings
+CACHE = HOME + "/.cache/atoll"  # alert file from Claude Code hooks, lock
 
 # USD list prices per 1M tokens: (input, output, cache read). Cache writes: 1.25x input (5m), 2x (1h).
 # shortcut: hardcoded from the Anthropic table cached 2026-10-06 and a third-party GPT-6.1-Sol quote; update when prices change.
@@ -241,7 +243,7 @@ def fetch_claude_usage():
         token = json.load(f)["claudeAiOauth"]["accessToken"]  # re-read: Claude Code refreshes it
     req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage", headers={
         "Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
-        "User-Agent": "claude-code-island"})
+        "User-Agent": "atoll"})
     with urllib.request.urlopen(req, timeout=10) as r:
         return json.load(r)
 
@@ -250,7 +252,7 @@ def fresh(s):
     return s["input"] + s["cache_write"] + s["output"]
 
 
-HISTORY = HOME + "/.local/share/claude-island/daily.json"
+HISTORY = DATA + "/daily.json"
 
 
 def merge_history(stored, *agent_days):

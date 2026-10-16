@@ -1,1 +1,27 @@
+# Python
 __pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build output (packaging/build-deb.sh)
+dist/
+*.deb
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Local secrets and env files; Atoll reads keys from the agents' own folders, never from the repo
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+auth.json

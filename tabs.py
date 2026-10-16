@@ -8,12 +8,12 @@ from gi.repository import Gtk, GdkPixbuf, Gio, GLib
 
 import usage_stats as us
 
-DATA = os.path.expanduser("~/.local/share/claude-island")
+DATA = us.DATA
 TASKS_FILE = DATA + "/tasks.json"
 AGENTS_FILE = DATA + "/agents.json"
 AGENTS = [("claude", "Claude Code"), ("codex", "Codex"), ("pi", "Pi · OpenRouter")]
 ICONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
-AUTOSTART = os.path.expanduser("~/.config/autostart/claude-island.desktop")
+AUTOSTART = os.path.expanduser("~/.config/autostart/atoll.desktop")
 AWAKE_CHOICES = [("Off", 0), ("1h", 3600), ("4h", 4 * 3600), ("8h", 8 * 3600), ("∞", None)]
 
 
@@ -772,7 +772,7 @@ class SettingsTab(Tab):
     def on_show(self):
         try:
             with open(os.path.expanduser("~/.claude/settings.json")) as f:
-                ok = ".cache/claude-island" in f.read()
+                ok = ".cache/atoll" in f.read()
         except OSError:
             ok = False
         self.hooks.set_text("Claude Code alerts: connected (Notification, Stop and UserPromptSubmit hooks)" if ok else
@@ -784,13 +784,29 @@ class SettingsTab(Tab):
 
     def on_autostart(self, sw, _p):
         if sw.get_active():
-            os.makedirs(os.path.dirname(AUTOSTART), exist_ok=True)
-            with open(AUTOSTART, "w") as f:
-                f.write("[Desktop Entry]\nType=Application\nName=Claude Usage Island\n"
-                        f"Exec=python3 {os.path.abspath(os.path.join(os.path.dirname(__file__), 'island.py'))}\n"
-                        "X-GNOME-Autostart-enabled=true\n")
+            write_autostart()
         elif os.path.exists(AUTOSTART):
             os.remove(AUTOSTART)
+
+
+def write_autostart():
+    os.makedirs(os.path.dirname(AUTOSTART), exist_ok=True)
+    with open(AUTOSTART, "w") as f:
+        f.write("[Desktop Entry]\nType=Application\nName=Atoll\n"
+                f"Exec=python3 {os.path.abspath(os.path.join(os.path.dirname(__file__), 'island.py'))}\n"
+                "X-GNOME-Autostart-enabled=true\n")
+
+
+def migrate_old_name():
+    """One-time move from the claude-island name: data folders and the login entry."""
+    for old, new in ((os.path.expanduser("~/.local/share/claude-island"), us.DATA),
+                     (os.path.expanduser("~/.cache/claude-island"), us.CACHE)):
+        if os.path.isdir(old) and not os.path.exists(new):
+            os.rename(old, new)
+    old = os.path.expanduser("~/.config/autostart/claude-island.desktop")
+    if os.path.exists(old):
+        write_autostart()
+        os.remove(old)
 
 
 # MediaTab is off for now; add it back here to restore the media player.

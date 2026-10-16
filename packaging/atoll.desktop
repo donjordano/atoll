@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Atoll
+Comment=Floating usage island for Claude Code, Codex and Pi
+Exec=atoll
+Icon=atoll
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+StartupWMClass=atoll
