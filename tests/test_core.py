@@ -6,7 +6,7 @@ import unittest
 import urllib.error
 from datetime import date, datetime, timezone
 
-from atoll.core.alerts import describe_alert
+from atoll.core.alerts import alert_hooks, describe_alert
 from atoll.core.fmt import fmt_clock, human, pretty_model, until
 from atoll.core.heat import heat_levels, heat_window, month_labels
 from atoll.core.history import merge_history, update_history
@@ -85,6 +85,17 @@ class Alerts(unittest.TestCase):
                                          "notification_type": "permission_prompt"})[0], "p · needs permission")
         self.assertEqual(describe_alert({"hook_event_name": "Notification", "message": "Hi"})[0], "Claude · Hi")
         self.assertIsNone(describe_alert({"hook_event_name": "UserPromptSubmit"}))
+
+    def test_alert_hooks_found_only_in_real_hook_commands(self):
+        cmd = {"type": "command", "command": 'd="$HOME/.cache/atoll"; cat > "$d/alert"'}
+        settings = {"hooks": {"Stop": [{"hooks": [cmd]}], "Notification": [{"matcher": "", "hooks": [cmd]}],
+                              "PreToolUse": [{"hooks": [cmd]}]}}
+        self.assertEqual(alert_hooks(settings), {"Stop", "Notification"})
+        other = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "notify-send done"}]}]},
+                 "env": {"NOTE": "~/.cache/atoll is mentioned here"}}
+        self.assertEqual(alert_hooks(other), set())  # a mention outside the hook commands doesn't count
+        for junk in (None, [], {"hooks": []}, {"hooks": {"Stop": "x"}}, {"hooks": {"Stop": [{"hooks": None}]}}):
+            self.assertEqual(alert_hooks(junk), set())
 
     def test_backoff_honors_retry_after(self):
         h = email.message.Message()

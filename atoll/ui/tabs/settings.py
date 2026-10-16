@@ -5,6 +5,8 @@ from gi.repository import Gtk
 
 from atoll import paths
 from atoll.agents import AGENTS, save_enabled
+from atoll.core.alerts import HOOK_EVENTS, alert_hooks
+from atoll.storage import read_json
 from atoll.system.autostart import remove_autostart, write_autostart
 from atoll.ui.tabs.base import Tab
 from atoll.ui.widgets import button, lbl
@@ -39,13 +41,13 @@ class SettingsTab(Tab):
         self.pack_start(btns, False, False, 6)
 
     def on_show(self):
-        try:
-            with open(paths.CLAUDE_SETTINGS) as f:
-                ok = ".cache/atoll" in f.read()
-        except OSError:
-            ok = False
-        self.hooks.set_text("Claude Code alerts: connected (Notification, Stop and UserPromptSubmit hooks)" if ok else
-                            "Claude Code alerts: not connected. Add the island hooks to ~/.claude/settings.json.")
+        missing = [e for e in HOOK_EVENTS if e not in alert_hooks(read_json(paths.CLAUDE_SETTINGS))]
+        if not missing:
+            self.hooks.set_text("Claude Code alerts: connected (Notification, Stop and UserPromptSubmit hooks)")
+        elif len(missing) == len(HOOK_EVENTS):
+            self.hooks.set_text("Claude Code alerts: not connected. Add the Atoll hooks to ~/.claude/settings.json.")
+        else:
+            self.hooks.set_text(f"Claude Code alerts: partly connected; missing the {', '.join(missing)} hook.")
 
     def on_agent(self, sw, _p, agent):
         self.island.set_agent(agent, sw.get_active())
