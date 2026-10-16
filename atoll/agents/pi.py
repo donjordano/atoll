@@ -30,7 +30,8 @@ def parse_file(path):
                    "output": u.get("output", 0), "cache_read": u.get("cacheRead", 0)}
             day, model = local_day(e["timestamp"]), m.get("model", "")
             add(days.setdefault(day, blank()), tok, (u.get("cost") or {}).get("total", 0), path)
-            models.setdefault(day, {})[model] = models.get(day, {}).get(model, 0) + 1
+            counts = models.setdefault(day, {})
+            counts[model] = counts.get(model, 0) + 1
             last = max(last or ("",), (e["timestamp"], model, cwd))
     return days, models, last
 
@@ -43,9 +44,10 @@ def stats():
     days, models, last = {}, {}, None
     for d, ms, l in scanner.scan():
         merge_into(days, d)
-        for day, counts in ms.items():
-            for m, n in counts.items():
-                models.setdefault(day, {})[m] = models.get(day, {}).get(m, 0) + n
+        for day, file_counts in ms.items():
+            counts = models.setdefault(day, {})
+            for m, n in file_counts.items():
+                counts[m] = counts.get(m, 0) + n
         if l:
             last = max(last or l, l)
     return days, models, last
