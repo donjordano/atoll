@@ -3,27 +3,26 @@
 Run from the repo root on an X11 desktop: python3 docs/screenshot.py  (needs ImageMagick's `montage`)
 Reads plan limits from Atoll's cache instead of calling the API. Check the images before committing.
 """
-import json, os, subprocess, sys
+import os, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import cairo
-import island, usage_stats as us
-from gi.repository import Gtk, Gdk, GLib
+from atoll.ui import style, window  # noqa: E402  (atoll.ui pins the GTK 3 versions first)
+from atoll.agents import claude, codex, pi  # noqa: E402
+from gi.repository import Gtk, GLib  # noqa: E402
 
 OUT = os.path.join(ROOT, "docs") + "/"
-us.fetch_claude_usage = lambda: json.load(open(island.LIMITS_CACHE))["data"]
-island.save_limits = lambda d: None
+claude.fetch_usage = lambda: claude.load_cached_usage()[0]  # no API call
+claude.save_cached_usage = lambda d: None
 anon = lambda last: last and (last[0], last[1], "/home/you/atoll")
-for name in ("claude_stats", "codex_stats", "pi_stats"):
-    f = getattr(us, name)
-    setattr(us, name, lambda f=f: tuple(anon(x) if isinstance(x, tuple) and len(x) == 3 and isinstance(x[0], str) else x
-                                          for x in f()))
-island.Island.recenter = lambda self: None  # stay put while capturing
+for mod in (claude, codex, pi):
+    f = mod.stats
+    mod.stats = lambda f=f: tuple(anon(x) if isinstance(x, tuple) and len(x) == 3 and isinstance(x[0], str) else x
+                                  for x in f())
+window.Island.recenter = lambda self: None  # stay put while capturing
 
-prov = Gtk.CssProvider()
-prov.load_from_data((island.CSS.decode() % island.LEVEL_COLORS).encode())
-Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-w = island.Island()
+style.install()
+w = window.Island()
 w.move(-3000, -3000)
 w.pill_agent = "claude"
 buttons = list(w.tab_buttons.values())

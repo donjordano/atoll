@@ -15,11 +15,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install GTK and PyGObject
         run: sudo apt-get update && sudo apt-get install -y python3-gi gir1.2-gtk-3.0 librsvg2-common xvfb
-      - name: Self-tests
-        run: |
-          python3 usage_stats.py
-          xvfb-run -a python3 tabs.py
-          xvfb-run -a python3 island.py --test
+      - name: Tests
+        run: xvfb-run -a python3 -m unittest discover -s tests -t . -v
       - name: Build .deb
         run: xvfb-run -a ./packaging/build-deb.sh
       - uses: actions/upload-artifact@v4

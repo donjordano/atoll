@@ -2,19 +2,20 @@
 # Build dist/atoll_<version>_all.deb. Install: sudo apt install ./dist/atoll_*_all.deb
 set -eu
 umask 022
-VERSION=${VERSION:-0.1.0}
 cd "$(dirname "$0")/.."
-python3 island.py --test && python3 tabs.py && python3 usage_stats.py
+VERSION=${VERSION:-$(python3 -c 'import atoll; print(atoll.__version__)')}
+python3 -m unittest discover -s tests -t .
 root=$(mktemp -d)
 chmod 755 "$root"
 trap 'rm -rf "$root"' EXIT
 app=$root/opt/atoll
-mkdir -p "$app/icons" "$root/usr/bin" "$root/usr/share/applications" \
+mkdir -p "$root/usr/bin" "$root/usr/share/applications" \
          "$root/usr/share/icons/hicolor/scalable/apps" "$root/DEBIAN"
-install -m 644 island.py tabs.py usage_stats.py "$app/"
-install -m 644 icons/* "$app/icons/"
-printf '#!/bin/sh\nexec python3 /opt/atoll/island.py "$@"\n' > "$root/usr/bin/atoll"
-chmod 755 "$root/usr/bin/atoll"
+find atoll -name __pycache__ -prune -o -type f -print | while read -r f; do
+    install -D -m 644 "$f" "$app/$f"
+done
+install -D -m 755 bin/atoll "$app/bin/atoll"
+ln -s /opt/atoll/bin/atoll "$root/usr/bin/atoll"
 install -m 644 packaging/atoll.desktop "$root/usr/share/applications/"
 install -m 644 packaging/atoll.svg "$root/usr/share/icons/hicolor/scalable/apps/"
 cat > "$root/DEBIAN/control" <<CONTROL
