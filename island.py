@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code / Codex usage 'dynamic island' for GNOME/X11. Hover to expand, click the pill to refresh."""
+"""Claude Code / Codex usage 'dynamic island' for GNOME/X11. Click the pill to expand, drag it to move."""
 import json, os, sys, threading, time, urllib.error
 from datetime import date, datetime, timedelta, timezone
 
@@ -19,6 +19,8 @@ HEAT_COLORS = {"claude": ["#4d2618", "#84402a", "#c0603d", "#e88a63"],  # Claude
                "pi": ["#0f3d26", "#16653d", "#24a35f", "#4fd68a"]}
 ALERT_FILE = os.path.expanduser("~/.cache/claude-island/alert")  # written by Claude Code hooks
 LIMITS_CACHE = os.path.expanduser("~/.local/share/claude-island/limits.json")
+POSITION_FILE = os.path.expanduser("~/.local/share/claude-island/position.json")  # [center x, top y] once dragged
+DRAG_THRESHOLD = 4  # px of movement before a press counts as a drag, not a click
 FETCH_EVERY, BACKOFF = 90, 300
 
 CSS = b"""
@@ -243,6 +245,11 @@ class Heatmap(Gtk.DrawingArea):
             cr.fill()
 
 
+def clamp_position(x, y, w, h, gx, gy, gw, gh):
+    """Top-left (x, y) moved the least amount that keeps a w×h window inside the area."""
+    return max(gx, min(x, gx + gw - w)), max(gy, min(y, gy + gh - h))
+
+
 def heat_block(box, who):
     """Pack a heatmap and its legend into box; returns (heatmap, active-days label)."""
     heat = Heatmap(who)
@@ -283,9 +290,18 @@ class Island(Gtk.Window):
             head.pack_start(img, False, False, 0)
             img.set_no_show_all(True)
         head.pack_start(self.compact, False, False, 0)
-        click = Gtk.EventBox()  # only the pill text refreshes on click, not the whole panel
+        click = Gtk.EventBox()  # the pill header: click opens/closes the panel, drag moves the island
         click.add(head)
-        click.connect("button-press-event", lambda *_: self.refresh())
+        click.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK)
+        click.connect("button-press-event", self.on_press)
+        click.connect("motion-notify-event", self.on_drag)
+        click.connect("button-release-event", self.on_release)
+        self.drag = None
+        try:
+            with open(POSITION_FILE) as f:
+                self.anchor = tuple(json.load(f))
+        except (OSError, ValueError, TypeError):
+            self.anchor = None  # default: top center of the primary monitor
         self.pill.pack_start(click, False, False, 0)
 
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -339,13 +355,13 @@ class Island(Gtk.Window):
 
         events = Gtk.EventBox()
         events.add(self.pill)
-        events.connect("enter-notify-event", self.on_enter)
         events.connect("leave-notify-event", self.on_leave)
         self.add(events)
 
         self.connect("size-allocate", lambda *_: self.recenter())
         self.show_all()
         self.revealer.hide()
+        self.resize(1, 1)  # shrink to the pill; an oversized transparent window would block clicks under it
         for a, on in self.agents.items():
             self.set_agent(a, on)
         self.refresh()
@@ -407,8 +423,8 @@ class Island(Gtk.Window):
             self.render_compact()
         return True
 
-    def on_enter(self, *_):
-        self.alert = None  # hovering means you've seen it
+    def open_panel(self):
+        self.alert = None  # opening the panel means you've seen it
         self.refresh()
         self.stack.get_visible_child().on_show()
         self.pill.get_style_context().add_class("open")
@@ -430,10 +446,54 @@ class Island(Gtk.Window):
             self.resize(1, 1)
         return False
 
-    def recenter(self):
+    def on_press(self, _w, ev):
+        if ev.button == 1:
+            self.drag = (ev.x_root, ev.y_root, self.anchor or self.default_anchor(), False)
+
+    def on_drag(self, _w, ev):
+        if not self.drag:
+            return
+        x0, y0, (ax, ay), moved = self.drag
+        dx, dy = ev.x_root - x0, ev.y_root - y0
+        if moved or abs(dx) + abs(dy) > DRAG_THRESHOLD:
+            self.drag = (x0, y0, (ax, ay), True)
+            self.anchor = (int(ax + dx), int(ay + dy))
+            self.recenter()
+
+    def on_release(self, _w, ev):
+        if not self.drag or ev.button != 1:
+            return
+        moved, self.drag = self.drag[3], None
+        if not moved:
+            if self.revealer.get_reveal_child():
+                self.revealer.set_reveal_child(False)
+                GLib.timeout_add(220, self.collapse)
+            else:
+                self.open_panel()
+            return
+        os.makedirs(os.path.dirname(POSITION_FILE), exist_ok=True)
+        with open(POSITION_FILE + ".tmp", "w") as f:
+            json.dump(self.anchor, f)
+        os.replace(POSITION_FILE + ".tmp", POSITION_FILE)
+
+    def reset_position(self):
+        self.anchor = None
+        try:
+            os.remove(POSITION_FILE)
+        except OSError:
+            pass
+        self.recenter()
+
+    def default_anchor(self):
         geo = Gdk.Display.get_default().get_primary_monitor().get_workarea()  # below the GNOME top bar
-        w, _ = self.get_size()
-        self.move(geo.x + (geo.width - w) // 2, geo.y + 6)
+        return geo.x + geo.width // 2, geo.y + 6
+
+    def recenter(self):
+        """Keep the pill's top center on the anchor, clamped so the whole window stays on its monitor."""
+        cx, top = self.anchor or self.default_anchor()
+        w, h = self.get_size()
+        geo = Gdk.Display.get_default().get_monitor_at_point(cx, top).get_workarea()
+        self.move(*clamp_position(cx - w // 2, top, w, h, geo.x, geo.y, geo.width, geo.height))
 
     def refresh(self):
         def work():
@@ -512,6 +572,9 @@ class Island(Gtk.Window):
 
 
 def self_test():
+    assert clamp_position(50, 50, 100, 40, 0, 0, 1000, 800) == (50, 50)
+    assert clamp_position(-30, 790, 100, 40, 0, 0, 1000, 800) == (0, 760)  # pulled back on screen
+    assert clamp_position(990, 10, 100, 40, 0, 20, 1000, 800) == (900, 20)
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     assert until("2026-01-01T02:05:30+00:00", now) == "2 h 05 min"
     assert until("2026-01-04T04:00:00+00:00", now) == "3 d 4 h"

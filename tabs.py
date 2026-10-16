@@ -765,6 +765,7 @@ class SettingsTab(Tab):
         self.pack_start(self.hooks, False, False, 0)
         btns = Gtk.Box(spacing=8)
         btns.pack_start(button("Refresh now", self.island.refresh), False, False, 0)
+        btns.pack_start(button("Reset position", self.island.reset_position), False, False, 0)
         btns.pack_start(button("Quit island", Gtk.main_quit), False, False, 0)
         self.pack_start(btns, False, False, 6)
 
