@@ -20,6 +20,7 @@ HEAT_COLORS = {"claude": ["#4d2618", "#84402a", "#c0603d", "#e88a63"],  # Claude
 ALERT_FILE = os.path.expanduser("~/.cache/claude-island/alert")  # written by Claude Code hooks
 LIMITS_CACHE = os.path.expanduser("~/.local/share/claude-island/limits.json")
 POSITION_FILE = os.path.expanduser("~/.local/share/claude-island/position.json")  # [center x, top y] once dragged
+PILL_FILE = os.path.expanduser("~/.local/share/claude-island/pill-agent")
 DRAG_THRESHOLD = 4  # px of movement before a press counts as a drag, not a click
 FETCH_EVERY, BACKOFF = 90, 300
 
@@ -284,7 +285,12 @@ class Island(Gtk.Window):
 
         self.pill = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, name="pill")
         self.compact = lbl("Claude …", xalign=0.5)
-        self.pill_icons = {a: icon(a.replace("claude", "claude-code"), 15) for a in ("claude", "codex")}
+        self.pill_icons = {a: icon(a.replace("claude", "claude-code"), 15) for a in ("claude", "codex", "pi")}
+        try:  # the agent the pill shows: the last agent tab you opened
+            with open(PILL_FILE) as f:
+                self.pill_agent = f.read().strip()
+        except OSError:
+            self.pill_agent = "claude"
         head = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
         for img in filter(None, self.pill_icons.values()):
             head.pack_start(img, False, False, 0)
@@ -374,6 +380,15 @@ class Island(Gtk.Window):
             self.stack.set_visible_child(tab)
             self.tab_title.set_text(tab.title)
             tab.on_show()
+            agent = getattr(tab, "agent", None)
+            if agent and agent != self.pill_agent:  # non-agent tabs (git, timer…) keep the current one
+                self.pill_agent = agent
+                try:
+                    with open(PILL_FILE, "w") as f:
+                        f.write(agent)
+                except OSError:
+                    pass
+                self.render_compact()
             GLib.timeout_add(150, lambda: self.resize(1, 1) and False)  # shrink to the new tab's height
 
     def set_agent(self, agent, on):
@@ -506,8 +521,8 @@ class Island(Gtk.Window):
                     self.error = str(e)[:60]
                     self.next_fetch = time.monotonic() + backoff_seconds(e)
             try:
-                state = (us.claude_stats(), us.codex_stats())
-                self.history = us.update_history(state[0][0], state[1][0], us.pi_stats()[0])
+                state = (us.claude_stats(), us.codex_stats(), us.pi_stats())
+                self.history = us.update_history(state[0][0], state[1][0], state[2][0])
                 lasts = [l for l in (state[0][1], state[1][1]) if l]
                 self.project_cwd = max(lasts)[2] if lasts else None
             except Exception as e:  # a malformed log must not kill the island
@@ -521,26 +536,30 @@ class Island(Gtk.Window):
         self.render()
         return False
 
+    def agent_summary(self, agent):
+        """Pill markup for one agent."""
+        limits = lambda l: f"5h {pct_markup(l['five_hour']['utilization'])}   7d {pct_markup(l['seven_day']['utilization'])}"
+        if agent == "claude":
+            if self.claude_limits:
+                return limits(self.claude_limits) + ("  ⚠" if self.error else "")
+            return "offline, retrying" if self.error else "loading…"
+        if not self.state:
+            return "loading…"
+        if agent == "codex":
+            xl = us.codex_limits(self.state[1][2])
+            return limits(xl) if xl else "no data"
+        t = self.state[2][0].get(date.today().isoformat()) or us.blank()  # pi: no plan limits, show today
+        return f"{us.human(us.fresh(t))} tok   ${t['cost']:.2f}"
+
     def render_compact(self):
         esc = GLib.markup_escape_text
-        cl = self.claude_limits if self.agents["claude"] else None
-        xl = self.state and self.agents["codex"] and us.codex_limits(self.state[1][2])
-        shown = None  # which agent's logo leads the pill
+        order = [self.pill_agent] + [a for a, _ in tabs.AGENTS]
+        shown = next((a for a in order if self.agents.get(a)), None)  # selected agent, or the first one still on
         if self.alert:
             msg = self.alert[0] if len(self.alert[0]) <= 48 else self.alert[0][:47] + "…"  # ellipsized labels collapse in a shrink-to-fit popup
-            text = f"<span foreground='{self.alert[1]}'>●</span>  {esc(msg)}"
-        elif cl:
-            shown = "claude"
-            text = f"5h {pct_markup(cl['five_hour']['utilization'])}   7d {pct_markup(cl['seven_day']['utilization'])}"
-            text += "  ⚠" if self.error else ""
-        elif self.agents["claude"]:
-            shown = "claude"
-            text = "offline, retrying" if self.error else "loading…"
-        elif xl:
-            shown = "codex"
-            text = f"5h {pct_markup(xl['five_hour']['utilization'])}   7d {pct_markup(xl['seven_day']['utilization'])}"
+            text, shown = f"<span foreground='{self.alert[1]}'>●</span>  {esc(msg)}", None
         else:
-            text = "●"
+            text = self.agent_summary(shown) if shown else "●"
         for t in self.tabs:  # timer / awake countdowns
             if t.pill():
                 text += "   " + esc(t.pill())
@@ -556,7 +575,7 @@ class Island(Gtk.Window):
         self.render_compact()
         if not self.state:
             return True
-        (c_days, c_last), (x_days, x_last, x_lim) = self.state
+        (c_days, c_last), (x_days, x_last, x_lim), _pi = self.state
         t = today.isoformat()
         self.claude_col.render(cl, c_days.get(t), c_last)
         self.codex_col.render(us.codex_limits(x_lim), x_days.get(t), x_last)
