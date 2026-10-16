@@ -1,6 +1,7 @@
 import email.message
 import os
 import tempfile
+import threading
 import unittest
 import urllib.error
 from datetime import date, datetime, timezone
@@ -99,7 +100,27 @@ class Storage(unittest.TestCase):
             self.assertEqual(read_json(p, []), [])
             write_json(p, {"k": 1})
             self.assertEqual(read_json(p), {"k": 1})
-            self.assertFalse(os.path.exists(p + ".tmp"))
+            self.assertEqual([f for f in os.listdir(os.path.dirname(p)) if f.endswith(".tmp")], [])
+
+    def test_concurrent_writers_never_corrupt_the_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "daily.json")
+            errors = []
+
+            def writer(n):
+                try:
+                    for _ in range(50):
+                        write_json(p, {str(i): [n] * 50 for i in range(200)})
+                except Exception as e:
+                    errors.append(e)
+            threads = [threading.Thread(target=writer, args=(n,)) for n in range(6)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(errors, [])
+            self.assertEqual(len(read_json(p)), 200)  # whole file from one writer, not a mix
+            self.assertEqual([f for f in os.listdir(d) if f.endswith(".tmp")], [])
 
 
 if __name__ == "__main__":

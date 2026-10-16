@@ -37,6 +37,7 @@ class Island(Gtk.Window):
         self.claude_limits = self.error = None
         self.state = self.history = self.alert = self.project_cwd = self.kb_grab = None
         self.alert_mtime = self.next_fetch = 0
+        self.refreshing = False  # one refresh at a time: they share the scanners and the history file
         cached, age = claude.load_cached_usage()  # last good numbers: shown at once, and a restart within FETCH_EVERY skips the API
         if cached:
             self.claude_limits = cached
@@ -246,6 +247,10 @@ class Island(Gtk.Window):
         self.move(*clamp_position(cx - w // 2, top, w, h, geo.x, geo.y, geo.width, geo.height))
 
     def refresh(self):
+        if self.refreshing:
+            return True
+        self.refreshing = True
+
         def work():
             if self.agents["claude"] and time.monotonic() >= self.next_fetch:  # the usage endpoint rate-limits (429); local data refreshes freely
                 try:
@@ -267,6 +272,7 @@ class Island(Gtk.Window):
         return True
 
     def apply(self, state):
+        self.refreshing = False
         self.state = state
         self.render()
         return False
