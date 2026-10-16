@@ -1,5 +1,6 @@
-"""Island tabs besides Usage: media, git, PRs, focus timer, calendar, tasks, activity, settings."""
+"""Island tabs besides Usage: Pi/OpenRouter, media, git, PRs, focus timer, calendar, tasks, activity, settings."""
 import glob, json, os, subprocess, threading, time, urllib.request
+from datetime import date, timedelta
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -9,6 +10,8 @@ import usage_stats as us
 
 DATA = os.path.expanduser("~/.local/share/claude-island")
 TASKS_FILE = DATA + "/tasks.json"
+AGENTS_FILE = DATA + "/agents.json"
+AGENTS = [("claude", "Claude Code"), ("codex", "Codex"), ("pi", "Pi · OpenRouter")]
 AUTOSTART = os.path.expanduser("~/.config/autostart/claude-island.desktop")
 AWAKE_CHOICES = [("Off", 0), ("1h", 3600), ("4h", 4 * 3600), ("8h", 8 * 3600), ("∞", None)]
 
@@ -43,8 +46,25 @@ def clear(box):
         box.remove(c)
 
 
+def load_agents(path=AGENTS_FILE):
+    """{agent: shown?}; agents missing from the file default to on."""
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        saved = {}
+    return {a: bool(saved.get(a, True)) for a, _ in AGENTS}
+
+
+def save_agents(agents, path=AGENTS_FILE):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        json.dump(agents, f)
+    os.replace(path + ".tmp", path)
+
+
 class Tab(Gtk.Box):
-    title, glyph = "", ""
+    title, glyph, agent = "", "", None
 
     def __init__(self, island):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -55,6 +75,120 @@ class Tab(Gtk.Box):
 
     def pill(self):
         return ""
+
+
+# ─── Pi + OpenRouter ────────────────────────────────────────────────────────
+
+def grid(rows):
+    """Two-column dim-label / right-aligned value grid; returns (grid, {title: value label})."""
+    g, cells = Gtk.Grid(row_spacing=1), {}
+    for i, title in enumerate(rows):
+        g.attach(lbl(title, "dim", hexpand=True), 0, i, 1, 1)
+        cells[title] = lbl(xalign=1)
+        g.attach(cells[title], 1, i, 1, 1)
+    return g, cells
+
+
+def top_models(models, n=3):
+    return sorted(models.items(), key=lambda kv: -kv[1])[:n]
+
+
+class PiTab(Tab):
+    title, glyph, agent = "Pi · OpenRouter", "π", "pi"
+    PI_ROWS = ["Input", "Cache write", "Output", "Cache read", "Requests", "Sessions"]
+    OR_ROWS = ["Today", "This week", "This month", "All time"]
+
+    def __init__(self, island):
+        super().__init__(island)
+        cols = Gtk.Box(spacing=28, homogeneous=True)
+        self.pack_start(cols, False, False, 0)
+        pi = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        orr = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        cols.pack_start(pi, True, True, 0)
+        cols.pack_start(orr, True, True, 0)
+
+        pi.pack_start(lbl("π  Pi", "title"), False, False, 2)
+        pi.pack_start(lbl("Today on this PC", "dim"), False, False, 4)
+        self.fresh = lbl()
+        pi.pack_start(self.fresh, False, False, 0)
+        g, self.pi_cells = grid(self.PI_ROWS)
+        pi.pack_start(g, False, False, 2)
+        self.cost, self.week = lbl(), lbl(cls="dim")
+        self.where = lbl(cls="dim", ellipsize=3)
+        for w in (self.cost, self.week, self.where):
+            pi.pack_start(w, False, False, 0)
+        pi.pack_start(lbl("Models today", "dim"), False, False, 6)
+        self.models = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        pi.pack_start(self.models, False, False, 0)
+
+        orr.pack_start(lbl("◇  OpenRouter", "title"), False, False, 2)
+        orr.pack_start(lbl("Spend on this key", "dim"), False, False, 4)
+        self.spend = lbl()
+        orr.pack_start(self.spend, False, False, 0)
+        g, self.or_cells = grid(self.OR_ROWS)
+        orr.pack_start(g, False, False, 2)
+        self.limit, self.limit_bar = lbl(), Gtk.ProgressBar()
+        orr.pack_start(self.limit, False, False, 6)
+        orr.pack_start(self.limit_bar, False, False, 0)
+        self.free, self.free_bar = lbl(), Gtk.ProgressBar()
+        orr.pack_start(lbl("Free models today", "dim"), False, False, 6)
+        orr.pack_start(self.free, False, False, 0)
+        orr.pack_start(self.free_bar, False, False, 0)
+        self.or_err = lbl(cls="dim", wrap=True, max_width_chars=28)
+        orr.pack_start(self.or_err, False, False, 0)
+        self.fetched = 0
+
+    def on_show(self):
+        self.render_pi()
+        if time.monotonic() - self.fetched < 60:
+            return
+        self.fetched = time.monotonic()
+        bg(us.fetch_openrouter_key, self.render_or)
+
+    def render_pi(self):
+        days, models, last = us.pi_stats()
+        today = date.today()
+        t = days.get(today.isoformat()) or us.blank()
+        self.fresh.set_markup(f"<span size='xx-large' weight='bold'>{us.human(us.fresh(t))}</span>  fresh tokens")
+        reqs = sum(models.get(today.isoformat(), {}).values())
+        vals = {"Input": t["input"], "Cache write": t["cache_write"], "Output": t["output"],
+                "Cache read": t["cache_read"], "Requests": reqs, "Sessions": len(t["sessions"])}
+        for k, v in vals.items():
+            self.pi_cells[k].set_text(us.human(v))
+        self.cost.set_markup(f"<b>${t['cost']:.2f}</b> billed today")
+        week = [days.get((today - timedelta(i)).isoformat()) or us.blank() for i in range(7)]
+        self.week.set_text(f"7 days: {us.human(sum(map(us.fresh, week)))} tokens · ${sum(d['cost'] for d in week):.2f}")
+        self.where.set_text(f"{last[1]} in {os.path.basename(last[2]) or '~'}" if last else "No Pi sessions found")
+        clear(self.models)
+        for m, n in top_models(models.get(today.isoformat(), {})) or [("None yet", "")]:
+            row = Gtk.Box()
+            row.pack_start(lbl(m, "mono", hexpand=True, ellipsize=1), True, True, 0)  # ellipsize start: keep model name
+            row.pack_start(lbl(str(n), xalign=1), False, False, 0)
+            self.models.pack_start(row, False, False, 0)
+        self.models.show_all()
+
+    def render_or(self, d):
+        if isinstance(d, Exception):
+            self.fetched = 0  # retry on next open
+            self.or_err.set_text(f"OpenRouter: {d}")
+            return
+        self.or_err.set_text("")
+        self.spend.set_markup(f"<span size='xx-large' weight='bold'>${d.get('usage_monthly', 0):.2f}</span>  this month")
+        for k, f in zip(self.OR_ROWS, ("usage_daily", "usage_weekly", "usage_monthly", "usage")):
+            self.or_cells[k].set_text(f"${d.get(f) or 0:.2f}")
+        lim = d.get("limit")
+        self.limit.set_text(f"${d.get('limit_remaining') or 0:.2f} of ${lim:.2f} limit left" if lim else "No spend limit")
+        self.limit_bar.set_fraction(min(1, (lim - (d.get("limit_remaining") or 0)) / lim) if lim else 0)
+        self.limit_bar.set_visible(bool(lim))
+        fr = d.get("free_model_daily_requests") or {}
+        used, cap = fr.get("used", 0), fr.get("limit") or 0
+        self.free.set_text(f"{used} of {cap} requests" if cap else "—")
+        self.free_bar.set_fraction(min(1, used / cap) if cap else 0)
+        for bar, frac in ((self.limit_bar, self.limit_bar.get_fraction()), (self.free_bar, self.free_bar.get_fraction())):
+            ctx = bar.get_style_context()
+            for c in ("ok", "warn", "bad"):
+                ctx.remove_class(c)
+            ctx.add_class("ok" if frac < 0.6 else "warn" if frac < 0.85 else "bad")
 
 
 # ─── Media ──────────────────────────────────────────────────────────────────
@@ -582,6 +716,15 @@ class SettingsTab(Tab):
 
     def __init__(self, island):
         super().__init__(island)
+        self.pack_start(lbl("Agents", "dim"), False, False, 0)
+        for agent, name in AGENTS:
+            row = Gtk.Box()
+            row.pack_start(lbl(name), True, True, 0)
+            sw = Gtk.Switch(active=island.agents[agent], valign=3)
+            sw.connect("notify::active", self.on_agent, agent)
+            row.pack_start(sw, False, False, 0)
+            self.pack_start(row, False, False, 0)
+        self.pack_start(lbl("General", "dim"), False, False, 6)
         row = Gtk.Box()
         row.pack_start(lbl("Start at login"), True, True, 0)
         self.autostart = Gtk.Switch(active=os.path.exists(AUTOSTART), valign=3)
@@ -604,6 +747,10 @@ class SettingsTab(Tab):
         self.hooks.set_text("Claude Code alerts: connected (Notification, Stop and UserPromptSubmit hooks)" if ok else
                             "Claude Code alerts: not connected. Add the island hooks to ~/.claude/settings.json.")
 
+    def on_agent(self, sw, _p, agent):
+        self.island.set_agent(agent, sw.get_active())
+        save_agents(self.island.agents)
+
     def on_autostart(self, sw, _p):
         if sw.get_active():
             os.makedirs(os.path.dirname(AUTOSTART), exist_ok=True)
@@ -615,11 +762,12 @@ class SettingsTab(Tab):
             os.remove(AUTOSTART)
 
 
-TABS = [MediaTab, GitTab, PRTab, TimerTab, CalendarTab, TasksTab, ActivityTab]
+TABS = [PiTab, MediaTab, GitTab, PRTab, TimerTab, CalendarTab, TasksTab, ActivityTab]
 
 
 if __name__ == "__main__":
     import tempfile
+    assert top_models({"a": 1, "b": 5, "c": 3, "d": 2}, 2) == [("b", 5), ("c", 3)]
     assert pick_player([]) is None
     assert pick_player([("a", "Paused"), ("b", "Playing")]) == "b"
     assert pick_player([("a", "Paused"), ("b", "Stopped")]) == "a"
@@ -631,5 +779,10 @@ if __name__ == "__main__":
     p = tempfile.mktemp()
     save_tasks([{"text": "a", "done": True}], p)
     assert load_tasks(p) == [{"text": "a", "done": True}] and load_tasks(p + "x") == []
+    os.unlink(p)
+    p = tempfile.mktemp()
+    assert load_agents(p) == {"claude": True, "codex": True, "pi": True}
+    save_agents({"claude": True, "codex": False}, p)
+    assert load_agents(p) == {"claude": True, "codex": False, "pi": True}  # new agents default on
     os.unlink(p)
     print("ok")

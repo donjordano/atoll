@@ -1,10 +1,12 @@
-"""Local token stats from Claude Code and Codex session logs, plus plan-usage fetchers."""
+"""Local token stats from Claude Code, Codex and Pi session logs, plus plan-usage fetchers."""
 import glob, json, os, urllib.request
 from datetime import datetime, timezone
 
 HOME = os.path.expanduser("~")
 CLAUDE_GLOB = HOME + "/.claude/projects/**/*.jsonl"
 CODEX_GLOB = HOME + "/.codex/sessions/**/*.jsonl"
+PI_GLOB = HOME + "/.pi/agent/sessions/**/*.jsonl"
+PI_AUTH = HOME + "/.pi/agent/auth.json"
 
 # USD list prices per 1M tokens: (input, output, cache read). Cache writes: 1.25x input (5m), 2x (1h).
 # shortcut: hardcoded from the Anthropic table cached 2026-10-06 and a third-party GPT-6.1-Sol quote; update when prices change.
@@ -133,6 +135,33 @@ claude_scanner = Scanner(CLAUDE_GLOB, parse_claude_file)
 codex_scanner = Scanner(CODEX_GLOB, parse_codex_file)
 
 
+def parse_pi_file(path):
+    """({day: stats}, {day: {model: requests}}, last (ts, model, cwd)). Cost is what the provider billed."""
+    days, models, last, cwd = {}, {}, None, ""
+    with open(path, errors="replace") as f:
+        for line in f:
+            if '"usage"' not in line and '"session"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("type") == "session":
+                cwd = e.get("cwd", cwd)
+                continue
+            m = e.get("message") or {}
+            u = m.get("usage")
+            if e.get("type") != "message" or m.get("role") != "assistant" or not u:
+                continue
+            tok = {"input": u.get("input", 0), "cache_write": u.get("cacheWrite", 0),
+                   "output": u.get("output", 0), "cache_read": u.get("cacheRead", 0)}
+            day, model = local_day(e["timestamp"]), m.get("model", "")
+            add(days.setdefault(day, blank()), tok, (u.get("cost") or {}).get("total", 0), path)
+            models.setdefault(day, {})[model] = models.get(day, {}).get(model, 0) + 1
+            last = max(last or ("",), (e["timestamp"], model, cwd))
+    return days, models, last
+
+
 def claude_stats():
     msgs, last = {}, None
     for m, l in claude_scanner.scan():
@@ -159,6 +188,37 @@ def codex_stats():
         if lim:
             limits = max(limits or lim, lim, key=lambda x: x[0])
     return days, last, limits
+
+
+pi_scanner = Scanner(PI_GLOB, parse_pi_file)
+
+
+def pi_stats():
+    days, models, last = {}, {}, None
+    for d, ms, l in pi_scanner.scan():
+        for day, st in d.items():
+            t = days.setdefault(day, blank())
+            for f in FIELDS:
+                t[f] += st[f]
+            t["cost"] += st["cost"]
+            t["sessions"] |= st["sessions"]
+        for day, counts in ms.items():
+            for m, n in counts.items():
+                models.setdefault(day, {})[m] = models.get(day, {}).get(m, 0) + n
+        if l:
+            last = max(last or l, l)
+    return days, models, last
+
+
+def fetch_openrouter_key():
+    """OpenRouter's /key info (spend, limits, free-model quota) for the key Pi uses."""
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        with open(PI_AUTH) as f:
+            key = json.load(f)["openrouter"]["key"]
+    req = urllib.request.Request("https://openrouter.ai/api/v1/key", headers={"Authorization": "Bearer " + key})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)["data"]
 
 
 def codex_limits(limits, now=None):
@@ -287,6 +347,16 @@ if __name__ == "__main__":
     days, last, _ = parse_codex_file(t.name)
     (s,) = days.values()
     assert (s["input"], s["cache_read"], s["output"]) == (500, 200, 20), s  # repeated event counted once
+    with open(t.name, "w") as f:
+        pu = lambda model, cost: {"type": "message", "timestamp": "2026-01-01T12:00:00Z", "message": {
+            "role": "assistant", "model": model, "usage": {"input": 10, "output": 5, "cacheRead": 7, "cacheWrite": 0,
+                                                            "cost": {"total": cost}}}}
+        for e in ({"type": "session", "cwd": "/z/proj"}, pu("a/x", 0.5), pu("a/x", 0.25), pu("b/free", 0)):
+            f.write(json.dumps(e) + "\n")
+    days, models, last = parse_pi_file(t.name)
+    (s,) = days.values()
+    assert (s["input"], s["output"], s["cache_read"], s["cost"]) == (30, 15, 21, 0.75), s
+    assert list(models.values()) == [{"a/x": 2, "b/free": 1}] and last[2] == "/z/proj"
     os.unlink(t.name)
     lim = (0, {"primary": {"used_percent": 40, "resets_at": 2000}, "secondary": {"used_percent": 9, "resets_at": 500}})
     out = codex_limits(lim, now=1000)

@@ -216,9 +216,9 @@ class Column(Gtk.Box):
 class Heatmap(Gtk.DrawingArea):
     CELL, GAP, TOP = 13, 4, 16  # TOP: room for the month labels
 
-    def __init__(self):
+    def __init__(self, who):
         super().__init__()
-        self.levels, self.owners, self.start = [], [], None
+        self.who, self.levels, self.start = who, [], None
         self.set_size_request(HEAT_WEEKS * (self.CELL + self.GAP), self.TOP + 7 * (self.CELL + self.GAP))
         self.connect("draw", self.on_draw)
 
@@ -230,9 +230,9 @@ class Heatmap(Gtk.DrawingArea):
             cr.move_to(col * step, 10)
             cr.show_text(name)
         cr.translate(0, self.TOP)
-        for i, (lv, who) in enumerate(zip(self.levels, self.owners)):  # i = 0: Monday HEAT_WEEKS-1 weeks ago
+        for i, lv in enumerate(self.levels):  # i = 0 is the Monday HEAT_WEEKS-1 weeks ago
             c = Gdk.RGBA()
-            c.parse(HEAT_COLORS[who][lv - 1] if lv else HEAT_EMPTY)
+            c.parse(HEAT_COLORS[self.who][lv - 1] if lv else HEAT_EMPTY)
             cr.set_source_rgba(c.red, c.green, c.blue, 1)
             x, y = (i // 7) * step, (i % 7) * step
             r = 3
@@ -243,6 +243,22 @@ class Heatmap(Gtk.DrawingArea):
             cr.arc(x + r, y + r, r, 3.1416, 4.7124)
             cr.close_path()
             cr.fill()
+
+
+def heat_block(box, who):
+    """Pack a heatmap and its legend into box; returns (heatmap, active-days label)."""
+    heat = Heatmap(who)
+    box.pack_start(heat, False, False, 4)
+    legend = Gtk.Box(spacing=4)
+    active = lbl(cls="dim", hexpand=True)
+    legend.pack_start(active, True, True, 0)
+    sw = lbl()
+    sw.set_markup(" ".join(f"<span foreground='{c}'>■</span>" for c in HEAT_COLORS[who]))
+    legend.pack_start(lbl("Less", "dim"), False, False, 4)
+    legend.pack_start(sw, False, False, 0)
+    legend.pack_start(lbl("More", "dim"), False, False, 4)
+    box.pack_start(legend, False, False, 0)
+    return heat, active
 
 
 class Island(Gtk.Window):
@@ -269,43 +285,38 @@ class Island(Gtk.Window):
         self.pill.pack_start(click, False, False, 0)
 
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        panel.set_size_request(470, -1)  # every tab gets the Usage tab's width
+        panel.set_size_request(470, -1)  # every tab gets the Claude tab's width
         self.last_alert = lbl("No alerts yet", "dim")
         panel.pack_start(self.last_alert, False, False, 0)
-        cols = Gtk.Box(spacing=28, homogeneous=True)
         self.claude_col, self.codex_col = Column("Claude Code", "✻"), Column("Codex", "◎")
-        cols.pack_start(self.claude_col, True, True, 0)
-        cols.pack_start(self.codex_col, True, True, 0)
-        panel.pack_start(cols, False, False, 0)
+        panel.pack_start(self.claude_col, False, False, 0)
+        codex = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        codex.pack_start(self.codex_col, False, False, 0)
 
-        self.heat = Heatmap()
-        panel.pack_start(self.heat, False, False, 4)
-        legend = Gtk.Box(spacing=4)
-        self.active = lbl(cls="dim", hexpand=True)
-        legend.pack_start(self.active, True, True, 0)
-        for name, who in (("Claude", "claude"), ("Codex", "codex")):
-            sw = lbl()
-            sw.set_markup(" ".join(f"<span foreground='{c}'>■</span>" for c in HEAT_COLORS[who]))
-            legend.pack_start(lbl(name, "dim"), False, False, 4)
-            legend.pack_start(sw, False, False, 0)
-        panel.pack_start(legend, False, False, 0)
-        panel.pack_start(lbl("Fresh tokens exclude context re-read from the cache. The estimated API "
+        self.heats = [heat_block(panel, "claude"), heat_block(codex, "codex")]  # history order: [claude, codex]
+        for box in (panel, codex):
+            box.pack_start(lbl("Fresh tokens exclude context re-read from the cache. The estimated API "
                              "equivalent uses list prices; it is not what you pay.", "dim",
-                             wrap=True, max_width_chars=60), False, False, 6)
+                               wrap=True, max_width_chars=60), False, False, 6)
 
-        self.tabs = [panel] + [cls(self) for cls in tabs.TABS] + [tabs.SettingsTab(self)]
-        panel.title, panel.glyph, panel.on_show, panel.pill = "Usage", "✻", lambda: None, lambda: ""
+        for t, title, glyph, agent in ((panel, "Claude Code", "✻", "claude"), (codex, "Codex", "◎", "codex")):
+            t.title, t.glyph, t.agent, t.on_show, t.pill = title, glyph, agent, lambda: None, lambda: ""
+        self.agents = tabs.load_agents()
+        self.tabs = [panel, codex] + [cls(self) for cls in tabs.TABS] + [tabs.SettingsTab(self)]
+        self.tab_buttons = {}
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=120,
                                vhomogeneous=False, interpolate_size=True)
         bar = Gtk.Box(spacing=2)
         bar.get_style_context().add_class("tabbar")
-        self.tab_title = lbl("Usage", "tabtitle")
+        self.tab_title = lbl("Claude Code", "tabtitle")
         first = None
         for i, t in enumerate(self.tabs):
             self.stack.add_named(t, t.title)
             b = Gtk.RadioButton(label=t.glyph, draw_indicator=False, group=first, tooltip_text=t.title)
             first = first or b
             b.connect("toggled", self.on_tab, t)
+            b.set_no_show_all(not self.agents.get(getattr(t, "agent", None), True))  # hidden agents stay hidden
+            self.tab_buttons[t] = b
             if t is self.tabs[-1]:  # the gear sits at the far right, after the title
                 bar.pack_start(self.tab_title, True, True, 10)
             bar.pack_start(b, False, False, 0)
@@ -327,6 +338,8 @@ class Island(Gtk.Window):
         self.connect("size-allocate", lambda *_: self.recenter())
         self.show_all()
         self.revealer.hide()
+        for a, on in self.agents.items():
+            self.set_agent(a, on)
         self.refresh()
         GLib.timeout_add_seconds(POLL_SECONDS, self.refresh)
         GLib.timeout_add_seconds(30, self.render)  # keep countdowns fresh between polls
@@ -338,6 +351,18 @@ class Island(Gtk.Window):
             self.tab_title.set_text(tab.title)
             tab.on_show()
             GLib.timeout_add(150, lambda: self.resize(1, 1) and False)  # shrink to the new tab's height
+
+    def set_agent(self, agent, on):
+        """Show or hide an agent's tab; called from Settings and at startup."""
+        self.agents[agent] = on
+        for t, b in self.tab_buttons.items():
+            if getattr(t, "agent", None) == agent:
+                b.set_visible(on)
+                if not on and b.get_active():  # leaving a hidden tab selected would strand it
+                    next(x for x in self.tab_buttons.values() if x.get_visible()).set_active(True)
+        if agent == "claude" and on:
+            self.next_fetch = 0
+        self.render()
 
     def notify(self, text, color, seconds):
         self.alert = (text, color, time.time() + seconds)
@@ -404,7 +429,7 @@ class Island(Gtk.Window):
 
     def refresh(self):
         def work():
-            if time.monotonic() >= self.next_fetch:  # the usage endpoint rate-limits (429); local data refreshes freely
+            if self.agents["claude"] and time.monotonic() >= self.next_fetch:  # the usage endpoint rate-limits (429); local data refreshes freely
                 try:
                     self.claude_limits, self.error = us.fetch_claude_usage(), None
                     self.next_fetch = time.monotonic() + FETCH_EVERY
@@ -430,15 +455,20 @@ class Island(Gtk.Window):
 
     def render_compact(self):
         esc = GLib.markup_escape_text
-        cl = self.claude_limits
+        cl = self.claude_limits if self.agents["claude"] else None
+        xl = self.state and self.agents["codex"] and us.codex_limits(self.state[1][2])
         if self.alert:
             msg = self.alert[0] if len(self.alert[0]) <= 48 else self.alert[0][:47] + "…"  # ellipsized labels collapse in a shrink-to-fit popup
             text = f"<span foreground='{self.alert[1]}'>●</span>  {esc(msg)}"
         elif cl:
             text = f"✻  5h {cl['five_hour']['utilization']:.0f}%   7d {cl['seven_day']['utilization']:.0f}%"
             text += "  ⚠" if self.error else ""
-        else:
+        elif self.agents["claude"]:
             text = esc("Claude · " + ("offline, retrying" if self.error else "loading…"))
+        elif xl:
+            text = f"◎  5h {xl['five_hour']['utilization']:.0f}%   7d {xl['seven_day']['utilization']:.0f}%"
+        else:
+            text = "●"
         for t in self.tabs:  # timer / awake countdowns
             if t.pill():
                 text += "   " + esc(t.pill())
@@ -458,12 +488,11 @@ class Island(Gtk.Window):
 
         start = today - timedelta(days=today.weekday() + 7 * (HEAT_WEEKS - 1))
         days = [(start + timedelta(i)).isoformat() for i in range((today - start).days + 1)]
-        pairs = [(self.history or {}).get(k, [0, 0]) for k in days]
-        vals = [sum(p) for p in pairs]
-        self.heat.levels, self.heat.start = heat_levels(vals), start
-        self.heat.owners = ["claude" if c >= x else "codex" for c, x in pairs]  # whichever did more that day
-        self.heat.queue_draw()
-        self.active.set_text(f"{sum(v > 0 for v in vals)} active days, colored by the busier tool")
+        for i, (heat, active) in enumerate(self.heats):
+            vals = [(self.history or {}).get(k, [0, 0])[i] for k in days]
+            heat.levels, heat.start = heat_levels(vals), start
+            heat.queue_draw()
+            active.set_text(f"{sum(v > 0 for v in vals)} active days, shaded by fresh tokens")
         return True
 
 
