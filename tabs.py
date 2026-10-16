@@ -12,6 +12,7 @@ DATA = os.path.expanduser("~/.local/share/claude-island")
 TASKS_FILE = DATA + "/tasks.json"
 AGENTS_FILE = DATA + "/agents.json"
 AGENTS = [("claude", "Claude Code"), ("codex", "Codex"), ("pi", "Pi · OpenRouter")]
+ICONS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons")
 AUTOSTART = os.path.expanduser("~/.config/autostart/claude-island.desktop")
 AWAKE_CHOICES = [("Off", 0), ("1h", 3600), ("4h", 4 * 3600), ("8h", 8 * 3600), ("∞", None)]
 
@@ -25,6 +26,24 @@ def level(pct):
 
 def pct_markup(pct):
     return f"<span foreground='{LEVEL_COLORS[level(pct)]}'>{pct:.0f}%</span>"
+
+
+def icon(name, size=16):
+    """Gtk.Image of icons/<name>.svg, or None if the file is missing."""
+    try:
+        return Gtk.Image.new_from_pixbuf(GdkPixbuf.Pixbuf.new_from_file_at_size(f"{ICONS}/{name}.svg", size, size))
+    except GLib.Error:
+        return None
+
+
+def title_row(icon_name, text):
+    """Bold section title with the agent's logo in front."""
+    row = Gtk.Box(spacing=8)
+    img = icon(icon_name)
+    if img:
+        row.pack_start(img, False, False, 0)
+    row.pack_start(lbl(text, "title"), False, False, 0)
+    return row
 
 
 def lbl(text="", cls=None, xalign=0, **kw):
@@ -75,7 +94,7 @@ def save_agents(agents, path=AGENTS_FILE):
 
 
 class Tab(Gtk.Box):
-    title, glyph, agent = "", "", None
+    title, glyph, agent, icon = "", "", None, None  # icon: name in icons/, shown instead of glyph
 
     def __init__(self, island):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -105,7 +124,7 @@ def top_models(models, n=3):
 
 
 class PiTab(Tab):
-    title, glyph, agent = "Pi · OpenRouter", "π", "pi"
+    title, glyph, agent, icon = "Pi · OpenRouter", "π", "pi", "pi"
     PI_ROWS = ["Input", "Cache write", "Output", "Cache read", "Requests", "Sessions"]
     OR_ROWS = ["Today", "This week", "This month", "All time"]
 
@@ -118,7 +137,7 @@ class PiTab(Tab):
         cols.pack_start(pi, True, True, 0)
         cols.pack_start(orr, True, True, 0)
 
-        pi.pack_start(lbl("π  Pi", "title"), False, False, 2)
+        pi.pack_start(title_row("pi", "Pi"), False, False, 2)
         pi.pack_start(lbl("Today on this PC", "dim"), False, False, 4)
         self.fresh = lbl()
         pi.pack_start(self.fresh, False, False, 0)
@@ -132,7 +151,7 @@ class PiTab(Tab):
         self.models = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
         pi.pack_start(self.models, False, False, 0)
 
-        orr.pack_start(lbl("◇  OpenRouter", "title"), False, False, 2)
+        orr.pack_start(title_row("openrouter", "OpenRouter"), False, False, 2)
         orr.pack_start(lbl("Spend on this key", "dim"), False, False, 4)
         self.spend = lbl()
         orr.pack_start(self.spend, False, False, 0)
@@ -781,6 +800,7 @@ if __name__ == "__main__":
     import tempfile
     assert [level(p) for p in (0, 50, 51, 80, 81)] == ["ok", "ok", "warn", "warn", "bad"]
     assert pct_markup(12.4) == "<span foreground='#30d158'>12%</span>"
+    assert icon("claude-code") and icon("codex") and icon("pi") and icon("openrouter") and icon("nope") is None
     assert top_models({"a": 1, "b": 5, "c": 3, "d": 2}, 2) == [("b", 5), ("c", 3)]
     assert pick_player([]) is None
     assert pick_player([("a", "Paused"), ("b", "Playing")]) == "b"

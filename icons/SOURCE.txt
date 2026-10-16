@@ -1,0 +1,3 @@
+Logos from Lobe Icons (MIT): https://github.com/lobehub/lobe-icons
+@lobehub/icons-static-svg@1.95.1: claudecode-color, codex-color, pi, openrouter (recolored white).
+The logos are trademarks of their owners.

@@ -9,7 +9,7 @@ from gi.repository import Gtk, Gdk, GLib
 
 import tabs
 import usage_stats as us
-from tabs import LEVEL_COLORS, lbl, level, pct_markup
+from tabs import LEVEL_COLORS, icon, lbl, level, pct_markup, title_row
 
 POLL_SECONDS = 120
 HEAT_WEEKS = 26
@@ -136,10 +136,10 @@ class Column(Gtk.Box):
     ROWS = [("Input", "input"), ("Cache write", "cache_write"), ("Output", "output"),
             ("Cache read", "cache_read"), ("Processed", None), ("Sessions", "sessions")]
 
-    def __init__(self, name, glyph):
+    def __init__(self, name, icon_name):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
         self.limits, self.mode = None, "five_hour"
-        self.pack_start(lbl(f"{glyph}  {name}", "title"), False, False, 2)
+        self.pack_start(title_row(icon_name, name), False, False, 2)
 
         seg_row = Gtk.Box(spacing=8)
         seg_row.pack_start(lbl("Plan usage", "dim"), False, False, 0)
@@ -277,8 +277,14 @@ class Island(Gtk.Window):
 
         self.pill = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, name="pill")
         self.compact = lbl("Claude …", xalign=0.5)
+        self.pill_icons = {a: icon(a.replace("claude", "claude-code"), 15) for a in ("claude", "codex")}
+        head = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
+        for img in filter(None, self.pill_icons.values()):
+            head.pack_start(img, False, False, 0)
+            img.set_no_show_all(True)
+        head.pack_start(self.compact, False, False, 0)
         click = Gtk.EventBox()  # only the pill text refreshes on click, not the whole panel
-        click.add(self.compact)
+        click.add(head)
         click.connect("button-press-event", lambda *_: self.refresh())
         self.pill.pack_start(click, False, False, 0)
 
@@ -286,7 +292,7 @@ class Island(Gtk.Window):
         panel.set_size_request(470, -1)  # every tab gets the Claude tab's width
         self.last_alert = lbl("No alerts yet", "dim")
         panel.pack_start(self.last_alert, False, False, 0)
-        self.claude_col, self.codex_col = Column("Claude Code", "✻"), Column("Codex", "◎")
+        self.claude_col, self.codex_col = Column("Claude Code", "claude-code"), Column("Codex", "codex")
         panel.pack_start(self.claude_col, False, False, 0)
         codex = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         codex.pack_start(self.codex_col, False, False, 0)
@@ -298,7 +304,8 @@ class Island(Gtk.Window):
                                wrap=True, max_width_chars=60), False, False, 6)
 
         for t, title, glyph, agent in ((panel, "Claude Code", "✻", "claude"), (codex, "Codex", "◎", "codex")):
-            t.title, t.glyph, t.agent, t.on_show, t.pill = title, glyph, agent, lambda: None, lambda: ""
+            t.title, t.glyph, t.agent, t.icon, t.on_show, t.pill = title, glyph, agent, agent.replace(
+                "claude", "claude-code"), lambda: None, lambda: ""
         self.agents = tabs.load_agents()
         self.tabs = [panel, codex] + [cls(self) for cls in tabs.TABS] + [tabs.SettingsTab(self)]
         self.heats.append(heat_block(next(t for t in self.tabs if getattr(t, "agent", None) == "pi"), "pi"))
@@ -311,7 +318,9 @@ class Island(Gtk.Window):
         first = None
         for i, t in enumerate(self.tabs):
             self.stack.add_named(t, t.title)
-            b = Gtk.RadioButton(label=t.glyph, draw_indicator=False, group=first, tooltip_text=t.title)
+            img = t.icon and icon(t.icon)
+            b = Gtk.RadioButton(draw_indicator=False, group=first, tooltip_text=t.title)
+            b.add(img or Gtk.Label(label=t.glyph))
             first = first or b
             b.connect("toggled", self.on_tab, t)
             b.set_no_show_all(not self.agents.get(getattr(t, "agent", None), True))  # hidden agents stay hidden
@@ -456,22 +465,29 @@ class Island(Gtk.Window):
         esc = GLib.markup_escape_text
         cl = self.claude_limits if self.agents["claude"] else None
         xl = self.state and self.agents["codex"] and us.codex_limits(self.state[1][2])
+        shown = None  # which agent's logo leads the pill
         if self.alert:
             msg = self.alert[0] if len(self.alert[0]) <= 48 else self.alert[0][:47] + "…"  # ellipsized labels collapse in a shrink-to-fit popup
             text = f"<span foreground='{self.alert[1]}'>●</span>  {esc(msg)}"
         elif cl:
-            text = f"✻  5h {pct_markup(cl['five_hour']['utilization'])}   7d {pct_markup(cl['seven_day']['utilization'])}"
+            shown = "claude"
+            text = f"5h {pct_markup(cl['five_hour']['utilization'])}   7d {pct_markup(cl['seven_day']['utilization'])}"
             text += "  ⚠" if self.error else ""
         elif self.agents["claude"]:
-            text = esc("Claude · " + ("offline, retrying" if self.error else "loading…"))
+            shown = "claude"
+            text = "offline, retrying" if self.error else "loading…"
         elif xl:
-            text = f"◎  5h {pct_markup(xl['five_hour']['utilization'])}   7d {pct_markup(xl['seven_day']['utilization'])}"
+            shown = "codex"
+            text = f"5h {pct_markup(xl['five_hour']['utilization'])}   7d {pct_markup(xl['seven_day']['utilization'])}"
         else:
             text = "●"
         for t in self.tabs:  # timer / awake countdowns
             if t.pill():
                 text += "   " + esc(t.pill())
         self.compact.set_markup(text)
+        for a, img in self.pill_icons.items():
+            if img:
+                img.set_visible(a == shown)
         self.compact.set_tooltip_text(self.error)  # full error on hover, not in the pill
 
     def render(self):
