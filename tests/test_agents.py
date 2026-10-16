@@ -26,13 +26,33 @@ class Claude(unittest.TestCase):
         self.assertAlmostEqual(msgs["m1"][2], 4.0)  # 1M input tokens at $4/MTok
         self.assertEqual(last[2], "/x/proj")
 
+    def test_normalize_usage(self):
+        full = {"five_hour": {"utilization": 14, "resets_at": "2026-10-16T20:40:00+00:00", "used_dollars": None},
+                "seven_day": {"utilization": 24.5, "resets_at": None}, "seven_day_opus": None, "extra": [1]}
+        self.assertEqual(claude.normalize_usage(full), {
+            "five_hour": {"utilization": 14.0, "resets_at": "2026-10-16T20:40:00+00:00"},
+            "seven_day": {"utilization": 24.5, "resets_at": None}})
+        none = {"utilization": None, "resets_at": None}
+        self.assertEqual(claude.normalize_usage({"five_hour": None}), {"five_hour": none, "seven_day": none})
+        for bad in ([], {"five_hour": 3}, {"five_hour": {"utilization": "14%"}},
+                    {"seven_day": {"utilization": True}}, {"five_hour": {"utilization": 1, "resets_at": 5}}):
+            with self.assertRaises(ValueError, msg=bad):
+                claude.normalize_usage(bad)
+
+    def test_bad_cache_is_ignored(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "limits.json")
+            with open(p, "w") as f:
+                json.dump({"at": "yesterday", "data": {"five_hour": 7}}, f)
+            self.assertEqual(claude.load_cached_usage(p), (None, None))
+
     def test_usage_cache_round_trip(self):
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "limits.json")
             self.assertEqual(claude.load_cached_usage(p), (None, None))
-            claude.save_cached_usage({"five_hour": {}}, p)
+            claude.save_cached_usage({"five_hour": {"utilization": 3, "resets_at": None}}, p)
             data, age = claude.load_cached_usage(p)
-            self.assertEqual(data, {"five_hour": {}})
+            self.assertEqual(data["five_hour"], {"utilization": 3.0, "resets_at": None})
             self.assertLess(age, 5)
 
 

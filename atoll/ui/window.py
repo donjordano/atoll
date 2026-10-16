@@ -279,7 +279,8 @@ class Island(Gtk.Window):
 
     def agent_summary(self, agent):
         """Pill markup for one agent."""
-        limits = lambda l: f"5h {pct_markup(l['five_hour']['utilization'])}   7d {pct_markup(l['seven_day']['utilization'])}"
+        pct = lambda w: "—" if w.get("utilization") is None else pct_markup(w["utilization"])
+        limits = lambda l: f"5h {pct(l['five_hour'])}   7d {pct(l['seven_day'])}"  # shape checked by normalize_usage / plan_limits
         if agent == "claude":
             if self.claude_limits:
                 return limits(self.claude_limits) + ("  ⚠" if self.error else "")

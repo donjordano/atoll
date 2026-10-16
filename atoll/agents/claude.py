@@ -64,13 +64,45 @@ def fetch_usage():
         "Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
         "User-Agent": "atoll"})
     with urllib.request.urlopen(req, timeout=10) as r:
-        return json.load(r)
+        return normalize_usage(json.load(r))
+
+
+WINDOWS = ("five_hour", "seven_day")
+
+
+def normalize_usage(d):
+    """Keep only the windows Atoll shows, checked: {window: {"utilization": float | None, "resets_at": str | None}}.
+
+    The endpoint is undocumented, so check it here rather than while drawing: a missing or null window
+    means "no data" (the API nulls windows routinely), and a wrong type raises ValueError so the caller
+    keeps the last good numbers instead of failing inside a GTK timer.
+    """
+    if not isinstance(d, dict):
+        raise ValueError("usage response is not an object")
+    out = {}
+    for name in WINDOWS:
+        w = d.get(name)
+        if w is None:
+            out[name] = {"utilization": None, "resets_at": None}
+            continue
+        if not isinstance(w, dict):
+            raise ValueError(f"unexpected {name} in usage response")
+        u, reset = w.get("utilization"), w.get("resets_at")
+        if u is not None and (isinstance(u, bool) or not isinstance(u, (int, float))):
+            raise ValueError(f"unexpected {name}.utilization in usage response")
+        if reset is not None and not isinstance(reset, str):
+            raise ValueError(f"unexpected {name}.resets_at in usage response")
+        out[name] = {"utilization": None if u is None else float(u), "resets_at": reset}
+    return out
 
 
 def load_cached_usage(path=paths.LIMITS_CACHE):
     """(last good limits, seconds since they were fetched), or (None, None)."""
     c = read_json(path) or {}
-    return (c["data"], time.time() - c["at"]) if "data" in c and "at" in c else (None, None)
+    try:
+        return normalize_usage(c["data"]), time.time() - float(c["at"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
 
 
 def save_cached_usage(data, path=paths.LIMITS_CACHE):
