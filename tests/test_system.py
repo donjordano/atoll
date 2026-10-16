@@ -46,6 +46,13 @@ class SysInfo(unittest.TestCase):
         self.assertEqual(cpu_percent((1, 1), (1, 1)), 0.0)
 
 
+class Autostart(unittest.TestCase):
+    def test_exec_line_quotes_awkward_paths(self):
+        self.assertIn('Exec=python3 "/home/a b/atoll/bin/atoll"\n', autostart.autostart_entry("/home/a b/atoll/bin/atoll"))
+        self.assertEqual(autostart.exec_quote('/x/$HOME "q" 100%'), r'"/x/\\$HOME \\"q\\" 100%%"')
+        self.assertEqual(autostart.exec_quote("/x\\y"), r'"/x\\\\y"')  # a literal backslash becomes four
+
+
 class Migration(unittest.TestCase):
     def test_old_name_and_old_launcher_move_over(self):
         with tempfile.TemporaryDirectory() as home:

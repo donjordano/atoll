@@ -1,12 +1,22 @@
 """Start at login, and moving data over from older names and layouts."""
-import os
+import os, re
 
 from atoll import paths
 
 
+def exec_quote(arg):
+    """One argument for a desktop entry's Exec= line, so paths with spaces or symbols survive.
+
+    Per the Desktop Entry spec: quote it and backslash-escape " ` $ \\, then apply the string-value escape
+    (backslash doubled), and write % as %% so it isn't read as a field code like %f.
+    """
+    quoted = '"' + re.sub(r'(["`$\\])', r"\\\1", arg) + '"'
+    return quoted.replace("\\", "\\\\").replace("%", "%%")
+
+
 def autostart_entry(launcher=paths.LAUNCHER):
     return ("[Desktop Entry]\nType=Application\nName=Atoll\n"
-            f"Exec=python3 {launcher}\n"
+            f"Exec=python3 {exec_quote(launcher)}\n"
             "X-GNOME-Autostart-enabled=true\n")
 
 
