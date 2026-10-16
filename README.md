@@ -102,7 +102,7 @@ Each hook writes Claude Code's event to `~/.cache/atoll/alert`, and Atoll checks
 Things to know:
 - **The Claude usage endpoint isn't a documented public API.** Anthropic can change or remove it at any time.
 - **Codex limits are only as fresh as Codex's last session on this PC**, because Atoll reads them from the session logs.
-- **Cost estimates use list prices**, hardcoded in `usage_stats.py`. They aren't what you're billed on a subscription.
+- **Cost estimates use list prices**, hardcoded in `atoll/core/pricing.py`. They aren't what you're billed on a subscription.
 - **Pi's cost is real**: it's the amount OpenRouter reports billing you.
 
 Atoll never sends your tokens or keys anywhere except the service they belong to, and it doesn't save them.
@@ -123,6 +123,6 @@ Bug reports, ideas and pull requests are welcome. Please read [CONTRIBUTING.md](
 
 ## License
 
-[MIT](LICENSE). Logos come from [Lobe Icons](https://github.com/lobehub/lobe-icons), also MIT; see [icons/SOURCE.txt](icons/SOURCE.txt).
+[MIT](LICENSE). Logos come from [Lobe Icons](https://github.com/lobehub/lobe-icons), also MIT; see [atoll/icons/SOURCE.txt](atoll/icons/SOURCE.txt).
 
 Atoll is an independent project. It isn't affiliated with or endorsed by Anthropic, OpenAI, OpenRouter or the Pi project. Claude, Claude Code, Codex and the other names and logos belong to their owners.

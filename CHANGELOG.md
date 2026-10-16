@@ -4,6 +4,12 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
+### Changed
+- The code is now an `atoll` Python package with separate layers: `core` (pure logic), `agents` (one module per agent), `system` (git, GitHub, CPU/memory, keep-awake, autostart) and `ui` (window, charts, and one module per tab).
+- Start it with `bin/atoll` or `python3 -m atoll` instead of `python3 island.py`. Start-at-login entries that point to `island.py` are updated automatically on the first start.
+- Tests moved from inline self-checks to a `unittest` suite in `tests/`.
+- The Keep Awake lock now shows up as "Atoll" in `systemd-inhibit --list`.
+
 ## [0.1.0] - 2026-10-16
 
 ### Added

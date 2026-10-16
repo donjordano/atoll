@@ -18,7 +18,7 @@ labels: bug
 - How you run Atoll (from the .deb or the source folder):
 
 **Terminal output**
-Run `python3 island.py` from the source folder, or `atoll`, and paste any errors. Remove tokens and keys before posting.
+Run `bin/atoll` from the source folder, or `atoll` if installed, and paste any errors. Remove tokens and keys before posting.
 
 ```
 ```

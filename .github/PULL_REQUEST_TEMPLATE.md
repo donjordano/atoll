@@ -1,7 +1,7 @@
 **What this changes and why**
 
 **How it was tested**
-- [ ] `python3 usage_stats.py && python3 tabs.py && python3 island.py --test` prints `ok` three times
+- [ ] `python3 -m unittest discover -s tests -t .` passes
 - [ ] Tried it on a real desktop (screenshot attached for visual changes)
 
 **Checklist**

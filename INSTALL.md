@@ -37,7 +37,7 @@ cd atoll
 sudo apt install ./dist/atoll_0.1.0_all.deb
 ```
 
-The build script runs the self-tests first and stops if any of them fail. To build a different version, run `VERSION=0.2.0 ./packaging/build-deb.sh`. Use a higher number for each new release, or apt won't treat it as an upgrade.
+The build script runs the tests first and stops if any of them fail. To build a different version, run `VERSION=0.2.0 ./packaging/build-deb.sh`. Use a higher number for each new release, or apt won't treat it as an upgrade.
 
 After installing:
 - **Atoll** appears in your app launcher.
@@ -49,7 +49,7 @@ After installing:
 ```sh
 git clone https://github.com/donjordano/atoll.git
 cd atoll
-python3 island.py
+bin/atoll          # or: python3 -m atoll
 ```
 
 ## 3. Start at login
@@ -82,7 +82,7 @@ If you added the alert hooks, also remove the `~/.cache/atoll` entries from `~/.
 | Problem | What to do |
 |---|---|
 | The pill shows ⚠ or "offline, retrying" | Hover over the pill to see the error. `HTTP Error 429` means the usage API is limiting requests; Atoll waits and tries again on its own. `401` means your Claude Code login expired: run `claude` once to refresh it. |
-| Nothing appears | Make sure you're on an X11 session (`echo $XDG_SESSION_TYPE` should print `x11`), then run `python3 island.py` in a terminal to see any errors. |
+| Nothing appears | Make sure you're on an X11 session (`echo $XDG_SESSION_TYPE` should print `x11`), then run `bin/atoll` from the source folder (or `atoll` if installed) in a terminal to see any errors. |
 | Logos show as text symbols | Install `librsvg2-common` (Debian/Ubuntu) or `librsvg2` (Fedora), which GTK needs to draw SVG files. |
 | The Pull requests tab shows an error | Run `gh auth status`; if you're not logged in, run `gh auth login`. |
 | The Git tab says it's not a repository | It follows the folder of your last Claude Code or Codex session. Start a session in a git project. |
