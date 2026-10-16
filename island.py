@@ -15,7 +15,8 @@ POLL_SECONDS = 120
 HEAT_WEEKS = 26
 HEAT_EMPTY = "#1c1c1e"
 HEAT_COLORS = {"claude": ["#4d2618", "#84402a", "#c0603d", "#e88a63"],  # Claude Code orange
-               "codex": ["#0b3d75", "#0a5fc2", "#1f7ff0", "#5aaeff"]}
+               "codex": ["#0b3d75", "#0a5fc2", "#1f7ff0", "#5aaeff"],
+               "pi": ["#0f3d26", "#16653d", "#24a35f", "#4fd68a"]}
 ALERT_FILE = os.path.expanduser("~/.cache/claude-island/alert")  # written by Claude Code hooks
 LIMITS_CACHE = os.path.expanduser("~/.local/share/claude-island/limits.json")
 FETCH_EVERY, BACKOFF = 90, 300
@@ -293,7 +294,7 @@ class Island(Gtk.Window):
         codex = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         codex.pack_start(self.codex_col, False, False, 0)
 
-        self.heats = [heat_block(panel, "claude"), heat_block(codex, "codex")]  # history order: [claude, codex]
+        self.heats = [heat_block(panel, "claude"), heat_block(codex, "codex")]  # history order: [claude, codex, pi]
         for box in (panel, codex):
             box.pack_start(lbl("Fresh tokens exclude context re-read from the cache. The estimated API "
                              "equivalent uses list prices; it is not what you pay.", "dim",
@@ -303,6 +304,7 @@ class Island(Gtk.Window):
             t.title, t.glyph, t.agent, t.on_show, t.pill = title, glyph, agent, lambda: None, lambda: ""
         self.agents = tabs.load_agents()
         self.tabs = [panel, codex] + [cls(self) for cls in tabs.TABS] + [tabs.SettingsTab(self)]
+        self.heats.append(heat_block(next(t for t in self.tabs if getattr(t, "agent", None) == "pi"), "pi"))
         self.tab_buttons = {}
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=120,
                                vhomogeneous=False, interpolate_size=True)
@@ -439,7 +441,7 @@ class Island(Gtk.Window):
                     self.next_fetch = time.monotonic() + backoff_seconds(e)
             try:
                 state = (us.claude_stats(), us.codex_stats())
-                self.history = us.update_history(state[0][0], state[1][0])
+                self.history = us.update_history(state[0][0], state[1][0], us.pi_stats()[0])
                 lasts = [l for l in (state[0][1], state[1][1]) if l]
                 self.project_cwd = max(lasts)[2] if lasts else None
             except Exception as e:  # a malformed log must not kill the island
@@ -489,7 +491,7 @@ class Island(Gtk.Window):
         start = today - timedelta(days=today.weekday() + 7 * (HEAT_WEEKS - 1))
         days = [(start + timedelta(i)).isoformat() for i in range((today - start).days + 1)]
         for i, (heat, active) in enumerate(self.heats):
-            vals = [(self.history or {}).get(k, [0, 0])[i] for k in days]
+            vals = [((self.history or {}).get(k, []) + [0] * 3)[i] for k in days]
             heat.levels, heat.start = heat_levels(vals), start
             heat.queue_draw()
             active.set_text(f"{sum(v > 0 for v in vals)} active days, shaded by fresh tokens")

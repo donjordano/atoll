@@ -253,24 +253,25 @@ def fresh(s):
 HISTORY = HOME + "/.local/share/claude-island/daily.json"
 
 
-def merge_history(stored, claude_days, codex_days):
-    """Per-day [claude, codex] fresh tokens; keeps the max so days survive log pruning."""
+def merge_history(stored, *agent_days):
+    """Per-day [claude, codex, pi] fresh tokens; keeps the max so days survive log pruning."""
     out = dict(stored)
-    for i, days in enumerate((claude_days, codex_days)):
+    for i, days in enumerate(agent_days):
         for day, s in days.items():
-            row = list(out.get(day, [0, 0]))
+            row = list(out.get(day, []))
+            row += [0] * (len(agent_days) - len(row))  # rows saved before Pi have 2 slots
             row[i] = max(row[i], fresh(s))
             out[day] = row
     return out
 
 
-def update_history(claude_days, codex_days, path=HISTORY):
+def update_history(*agent_days, path=HISTORY):
     try:
         with open(path) as f:
             stored = json.load(f)
     except (OSError, ValueError):
         stored = {}
-    merged = merge_history(stored, claude_days, codex_days)
+    merged = merge_history(stored, *agent_days)
     if merged != stored:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path + ".tmp", "w") as f:
@@ -364,6 +365,8 @@ if __name__ == "__main__":
     day = lambda n: {"input": n, "cache_write": 0, "output": 0, "cache_read": 99}
     h = merge_history({"d1": [500, 7]}, {"d1": day(100), "d2": day(30)}, {"d2": day(4)})
     assert h == {"d1": [500, 7], "d2": [30, 4]}, h  # pruned/lower day keeps stored max
+    h = merge_history({"d1": [500, 7]}, {}, {}, {"d1": day(9)})
+    assert h == {"d1": [500, 7, 9]}, h  # old 2-slot rows grow a Pi slot
     g = parse_git("# branch.oid abc\n# branch.head main\n# branch.ab +2 -1\n"
                   "1 .M N... 100644 100644 100644 h1 h2 src/my file.py\n"
                   "2 R. N... 100644 100644 100644 h1 h2 R100 new.py\told.py\n? notes.txt\n")
