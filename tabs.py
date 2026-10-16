@@ -16,6 +16,17 @@ AUTOSTART = os.path.expanduser("~/.config/autostart/claude-island.desktop")
 AWAKE_CHOICES = [("Off", 0), ("1h", 3600), ("4h", 4 * 3600), ("8h", 8 * 3600), ("∞", None)]
 
 
+LEVEL_COLORS = {"ok": "#30d158", "warn": "#ff9f0a", "bad": "#ff453a"}  # green ≤50%, orange ≤80%, red above
+
+
+def level(pct):
+    return "ok" if pct <= 50 else "warn" if pct <= 80 else "bad"
+
+
+def pct_markup(pct):
+    return f"<span foreground='{LEVEL_COLORS[level(pct)]}'>{pct:.0f}%</span>"
+
+
 def lbl(text="", cls=None, xalign=0, **kw):
     l = Gtk.Label(label=text, xalign=xalign, **kw)
     for c in (cls or "").split():
@@ -188,7 +199,7 @@ class PiTab(Tab):
             ctx = bar.get_style_context()
             for c in ("ok", "warn", "bad"):
                 ctx.remove_class(c)
-            ctx.add_class("ok" if frac < 0.6 else "warn" if frac < 0.85 else "bad")
+            ctx.add_class(level(frac * 100))
 
 
 # ─── Media ──────────────────────────────────────────────────────────────────
@@ -762,11 +773,14 @@ class SettingsTab(Tab):
             os.remove(AUTOSTART)
 
 
-TABS = [PiTab, MediaTab, GitTab, PRTab, TimerTab, CalendarTab, TasksTab, ActivityTab]
+# MediaTab is off for now; add it back here to restore the media player.
+TABS = [PiTab, GitTab, PRTab, TimerTab, CalendarTab, TasksTab, ActivityTab]
 
 
 if __name__ == "__main__":
     import tempfile
+    assert [level(p) for p in (0, 50, 51, 80, 81)] == ["ok", "ok", "warn", "warn", "bad"]
+    assert pct_markup(12.4) == "<span foreground='#30d158'>12%</span>"
     assert top_models({"a": 1, "b": 5, "c": 3, "d": 2}, 2) == [("b", 5), ("c", 3)]
     assert pick_player([]) is None
     assert pick_player([("a", "Paused"), ("b", "Playing")]) == "b"

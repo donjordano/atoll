@@ -9,7 +9,7 @@ from gi.repository import Gtk, Gdk, GLib
 
 import tabs
 import usage_stats as us
-from tabs import lbl
+from tabs import LEVEL_COLORS, lbl, level, pct_markup
 
 POLL_SECONDS = 120
 HEAT_WEEKS = 26
@@ -35,9 +35,9 @@ label { color: #fff; font-family: sans; font-size: 10.5pt; }
 .seg button:checked label { color: #fff; }
 progressbar trough { min-height: 6px; border-radius: 3px; background: #2c2c2e; border: none; }
 progressbar progress { min-height: 6px; border-radius: 3px; border: none; }
-.ok progress { background: #0a84ff; }
-.warn progress { background: #ffd60a; }
-.bad progress { background: #ff453a; }
+.ok progress { background: %(ok)s; }
+.warn progress { background: %(warn)s; }
+.bad progress { background: %(bad)s; }
 .tabbar button { background: none; border: none; box-shadow: none; border-radius: 10px; padding: 4px 7px; min-height: 0; min-width: 0; }
 .tabbar button label, .icon label, .icon { font-family: "JetBrainsMono Nerd Font"; font-size: 13pt; color: #8e8e93; }
 .tabbar button:checked { background: #2c2c2e; }
@@ -73,9 +73,6 @@ def until(iso, now=None):
     d, h, m = s // 86400, s % 86400 // 3600, s % 3600 // 60
     return f"{d} d {h} h" if d else f"{h} h {m:02d} min"
 
-
-def level(pct):
-    return "ok" if pct < 60 else "warn" if pct < 85 else "bad"
 
 
 def month_labels(start, n_days):
@@ -192,7 +189,7 @@ class Column(Gtk.Box):
             self.bar.set_fraction(0)
             self.resets.set_text("No data")
         else:
-            self.big_pct.set_markup(f"<span size='xx-large' weight='bold'>{pct:.0f}%</span>  {kind}")
+            self.big_pct.set_markup(f"<span size='xx-large' weight='bold'>{pct_markup(pct)}</span>  {kind}")
             self.bar.set_fraction(min(pct, 100) / 100)
             self.resets.set_text("Resets in " + until(u.get("resets_at")))
         ctx = self.bar.get_style_context()
@@ -463,12 +460,12 @@ class Island(Gtk.Window):
             msg = self.alert[0] if len(self.alert[0]) <= 48 else self.alert[0][:47] + "…"  # ellipsized labels collapse in a shrink-to-fit popup
             text = f"<span foreground='{self.alert[1]}'>●</span>  {esc(msg)}"
         elif cl:
-            text = f"✻  5h {cl['five_hour']['utilization']:.0f}%   7d {cl['seven_day']['utilization']:.0f}%"
+            text = f"✻  5h {pct_markup(cl['five_hour']['utilization'])}   7d {pct_markup(cl['seven_day']['utilization'])}"
             text += "  ⚠" if self.error else ""
         elif self.agents["claude"]:
             text = esc("Claude · " + ("offline, retrying" if self.error else "loading…"))
         elif xl:
-            text = f"◎  5h {xl['five_hour']['utilization']:.0f}%   7d {xl['seven_day']['utilization']:.0f}%"
+            text = f"◎  5h {pct_markup(xl['five_hour']['utilization'])}   7d {pct_markup(xl['seven_day']['utilization'])}"
         else:
             text = "●"
         for t in self.tabs:  # timer / awake countdowns
@@ -504,7 +501,6 @@ def self_test():
     assert until("2026-01-04T04:00:00+00:00", now) == "3 d 4 h"
     assert until("2025-12-31T00:00:00+00:00", now) == "0 h 00 min"
     assert until(None) == "—"
-    assert [level(p) for p in (0, 59, 60, 85, 100)] == ["ok", "ok", "warn", "bad", "bad"]
     assert month_labels(date(2026, 4, 27), 21) == [(0, "May")]  # the week holding May 1 is May's
     assert month_labels(date(2026, 4, 20), 21) == [(1, "May")]  # one-column Apr label dropped
     assert month_labels(date(2026, 4, 6), 35)[0] == (0, "Apr")
@@ -528,7 +524,7 @@ if __name__ == "__main__":
         self_test()
         sys.exit()
     prov = Gtk.CssProvider()
-    prov.load_from_data(CSS)
+    prov.load_from_data((CSS.decode() % LEVEL_COLORS).encode())
     Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov,
                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     Island()
