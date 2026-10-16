@@ -42,6 +42,8 @@ Each one prints `ok`. CI runs the same commands and also builds the `.deb`.
 
 If you add logic, such as a parser, a calculation or a branch, add a small `assert` to the self-test of that module. Changes to the look need a check by eye: please attach a screenshot to your pull request.
 
+To update the README images, run `python3 docs/screenshot.py` on an X11 desktop. It needs ImageMagick. It draws the pill and three tabs from your own data and replaces project names with "atoll", but your token counts and spending still show, so check the images before committing them.
+
 ## Code guidelines
 
 - **No new dependencies.** Atoll uses only Python's standard library plus PyGObject and GTK 3, which are already on most GNOME desktops. Calling a tool the user may have, like `git` or `gh`, is fine if the feature fails gracefully without it.

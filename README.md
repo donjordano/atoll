@@ -5,7 +5,13 @@ A floating "dynamic island" for your Linux desktop that shows how much of your A
 [![CI](https://github.com/donjordano/atoll/actions/workflows/ci.yml/badge.svg)](https://github.com/donjordano/atoll/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<!-- Add a screenshot: docs/screenshot.png -->
+<p align="center"><img src="docs/pill.png" alt="The collapsed Atoll pill showing Claude Code's 5-hour and weekly usage"></p>
+
+![The open panel's Claude Code, Codex and Pi · OpenRouter tabs, each with plan usage, today's tokens and a heatmap](docs/panels.png)
+
+## Why "Atoll"?
+
+An atoll is a ring of small islands around a single lagoon. The project started as CCDI, short for "Claude Code Dynamic Island": a phone-style dynamic island for Claude Code. It got its new name when it grew into several agents sharing one pill: Claude Code, Codex and Pi, each a small island in the same ring. It also works as a short command: `atoll`.
 
 ## Features
 
